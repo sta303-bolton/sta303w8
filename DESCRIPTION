@@ -1,0 +1,18 @@
+Package: sta303w8
+Type: Package
+Title: Materials For Week 8 of STA303 Winter 2020
+Version: 0.1.0
+Author: Liza Bolton
+Maintainer: Liza Bolton <liza.bolton@utoronto.ca>
+Description: Contains code/templates for Week 8 case studies.
+License: GPL-3
+Depends: tidyverse,
+  gridExtra,
+  knitr,
+  mosaic,
+  pscl,
+  multcomp,
+  MASS
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.1.0

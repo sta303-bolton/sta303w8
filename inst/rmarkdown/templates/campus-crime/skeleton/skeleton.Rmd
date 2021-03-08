@@ -1,0 +1,174 @@
+---
+title: 'Poisson regression case study: Campus crime'
+subtitle: 'STA303 Winter 2021'
+output: pdf_document
+urlcolor: blue
+---
+
+### Data Organization
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(MASS)
+library(multcomp)
+#Getting started-Crime
+# Crime data for Universities and Colleges
+c.data <- read_csv(
+  "https://raw.githubusercontent.com/proback/BeyondMLR/master/data/c_data.csv")
+
+names(c.data)
+head(c.data)
+summary(c.data)
+with(c.data,round(prop.table(table(type)),3)) 
+#creating dataset using 30:70 C:U
+with(c.data,table(type,region)) 
+#creating dataset using 30:70 C:U
+ggplot(c.data, aes(x=nv)) + 
+  geom_histogram() +
+  theme_minimal()
+# looks Poisson
+```
+
+```{r, comment=NA, echo=FALSE}
+head(c.data, n=10)
+```
+
+### Exploratory Data Analysis
+
+```{r, nviolent, fig.align="center",out.width="60%", fig.cap='Histogram of number of violent crimes by institution.', warning=FALSE, message=FALSE}
+ggplot(c.data, aes(x=nv)) + 
+  geom_histogram(bins = 15, color = "black", fill = "white") +
+  xlab("Number of violent crimes") +
+  theme_minimal()
+```
+
+
+```{r}
+with(c.data,round(prop.table(table(type,region),2),3)) %>% 
+  knitr::kable(caption = 'Proportion of colleges and universities within region in the campus crime data set.')
+```
+
+
+```{r, message=FALSE}
+# Combining the southern colleges and universities
+c.data <- c.data %>%
+  mutate(region, region = fct_recode(region, 
+                                     "S" = "SW", "S"="SE"))
+```
+
+```{r, message=FALSE}
+# Removing Outlier
+c.data <- c.data %>% 
+  filter(nvrate<5)
+# Checking mean=variance assumption 
+c.data %>%
+    group_by(region, type) %>%
+    dplyr::summarize(MeanCount = mean(nv, na.rm=TRUE),
+              VarCount = var(nv, na.rm=TRUE),
+              MeanRate = mean(nvrate, na.rm=TRUE),
+              VarRate = var(nvrate, na.rm=TRUE),
+              n = n()) %>% 
+  knitr::kable(booktabs=T, 
+        caption = 'The mean and variance of the violent crime rate by region and type of institution.')
+```
+
+```{r, boxtyperegion, fig.align="center",out.width="60%", fig.cap='Boxplot of violent crime rate by region and type of institution (colleges (C) on the left, and universities (U) on the right).', warning=FALSE, message=FALSE}
+#Insert boxplot without the outlier and combining S and SE
+ggplot(c.data, aes(x = region, y = nvrate, fill = type)) +
+  geom_boxplot() +
+  ylab("Violent crimes per 1000 students") +
+  theme_minimal()
+```
+
+## Initial Models
+
+```{r, comment = NA}
+modeltr <- glm(nv ~ type + region, family = poisson,
+               offset = log(enroll1000), data = c.data)
+```
+
+```{r, message=FALSE}
+coef(summary(modeltr))
+cat(" Residual deviance = ", summary(modeltr)$deviance, " on ",
+    summary(modeltr)$df.residual, "df", "\n",
+    "Dispersion parameter = ", summary(modeltr)$dispersion)
+```
+
+### Tukey's Honestly Significant Differences
+
+
+```{r}
+mult_comp <- summary(glht(modeltr, mcp(region="Tukey")))
+```
+
+```{r}
+tibble(comparison = rownames(mult_comp$linfct),
+       estimate = mult_comp$test$coefficients,
+       SE = mult_comp$test$sigma,
+       z_value = mult_comp$test$tstat,
+       p_value = mult_comp$test$pvalues)
+```
+
+
+```{r, comment = NA}
+modeli <- glm(nv ~ type + region + region:type, 
+              family = poisson,
+              offset = log(enroll1000), data = c.data)
+```
+
+```{r, echo=FALSE, message=FALSE}
+coef(summary(modeli))
+cat(" Residual deviance = ", summary(modeli)$deviance, " on ",
+    summary(modeli)$df.residual, "df", "\n",
+    "Dispersion parameter = ", summary(modeli)$dispersion)
+```
+
+
+```{r comment=NA}
+anova(modeltr, modeli, test = "Chisq")
+```
+
+## Overdispersion
+
+### Dispersion Parameter Adjustment
+
+```{r, comment = NA}
+modeliq <- glm(nv ~ type + region + region:type, 
+               family = quasipoisson,
+               offset = log(enroll1000), data = c.data)
+```
+
+```{r}
+coef(summary(modeliq))
+cat(" Residual deviance = ", summary(modeliq)$deviance, " on ",
+    summary(modeliq)$df.residual, "df", "\n",
+    "Dispersion parameter = ", summary(modeliq)$dispersion)
+```
+
+```{r comment=NA}
+modeltrq <- glm(nv ~ type + region, family = quasipoisson,
+               offset = log(enroll1000), data = c.data)
+
+anova(modeltrq, modeliq, test = "F")
+```
+
+### Negative Binomial Modeling
+
+```{r, include=FALSE}
+c.data2 <- c.data %>% 
+  mutate(enroll1000 = ifelse(enroll1000 < 1, 1, enroll1000))
+```
+
+```{r, comment = NA}
+# Account for overdispersion with negative binomial model
+# glm.nb is from the MASS package
+modelinb <- glm.nb(nv ~ type + region + region:type, 
+               offset(log(enroll1000)), data = c.data2)
+```
+
+```{r, message=FALSE}
+coef(summary(modelinb))
+cat(" Residual deviance = ", summary(modelinb)$deviance, " on ",
+    summary(modelinb)$df.residual, "df", "\n",
+    "Dispersion parameter (theta) = ", summary(modelinb)$theta)
+```

@@ -1,0 +1,151 @@
+---
+title: 'Poisson regression case study: Weekend drinking'
+subtitle: 'STA303 Winter 2021'
+author: 'Your name here'
+output: pdf_document
+urlcolor: blue
+---
+
+```{r, message=FALSE}
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+library(mosaic)
+library(xtable)
+library(pscl) 
+library(multcomp)
+library(MASS)
+library(tidyverse)
+
+zip.data <- read.csv(
+  "https://raw.githubusercontent.com/proback/BeyondMLR/master/data/weekendDrinks.csv")  
+names(zip.data)
+dim(zip.data)
+## Observed data
+obs.table <- tally(group_by(zip.data, drinks))  %>%
+  mutate(prop=round(n/sum(n),3))
+obs.table  # 47% reported 0 drinks last weekend
+g.obs <- obs.table %>%
+  ggplot(aes(y=prop,x=drinks)) + 
+  geom_bar(stat="identity") +
+  labs(x= "Number of drinks", y="Proportion") +
+  ggtitle("a) Observed")+
+  coord_cartesian(ylim = c(0, .5)) +
+  theme_minimal()
+g.obs
+## Poisson model
+### lambda = mean number of drinks
+sum1 <- zip.data %>% 
+  summarise(lambda=mean(drinks),maxDrinks = max(drinks))
+possible.values = with(sum1,0:maxDrinks)
+model.prob <- with(sum1,dpois(possible.values,lambda))
+pois.model <- data.frame(possible.values,model.prob)
+g.model<-  ggplot(pois.model,
+                  aes(y=model.prob,x=possible.values)) + 
+  geom_bar(stat="identity")+
+  labs(x= "Number of drinks", y="Probability") +
+  ggtitle("b) Poisson Model")+
+  coord_cartesian(ylim = c(0, .5)) +
+  theme_minimal()
+g.model
+```
+
+### Data Organization
+
+```{r}
+# predictors: sex, dorm, off campus
+sex.table <- tally(group_by(zip.data, sex))  %>%
+  mutate(prop=round(n/sum(n),3))
+sex.table
+dorm.table <- tally(group_by(zip.data, dorm))  %>%
+  mutate(prop=round(n/sum(n),3))
+dorm.table
+zip.data <- zip.data %>% 
+  mutate(off.campus=ifelse(dorm=="off campus",1,0))
+off.table <- tally(group_by(zip.data, off.campus))  %>%
+  mutate(prop=round(n/sum(n),3))
+off.table
+# Grand Mean Model: no predictors
+gmn.model=glm(drinks~1,family=poisson,data=zip.data)
+summary(gmn.model)
+exp(coef(gmn.model))  # same as mean number of drinks for this simple model
+```
+
+```{r, comment=NA}
+## Fitting a Zero Inflated Poisson (ZIP) model
+zip.data <- zip.data %>% 
+  mutate(firstYear=dorm%in%c("kildahl","mohn","kittlesby"))
+fy.table <- tally(group_by(zip.data, firstYear))  %>%
+  mutate(prop=round(n/sum(n),3))
+fy.table
+```
+
+```{r, comment=NA}
+head(zip.data[2:5])
+```
+
+### Exploratory Data Analysis
+
+```{r, obsVmodel, fig.align="center",out.width="60%", fig.cap='Observed (a) versus modeled (b) number of drinks.', warning=FALSE, message=FALSE}
+#obsDrinks and modelDrinks
+obsVmodel <- grid.arrange(g.obs,g.model,ncol=1)
+```
+
+
+### Modeling
+
+```{r, comment = NA}
+pois.m1 <- glm(drinks ~ off.campus + sex, family = poisson,
+               data = zip.data)
+```
+
+```{r, message=FALSE}
+coef(summary(pois.m1))
+cat(" Residual deviance = ", summary(pois.m1)$deviance, " on ",
+    summary(pois.m1)$df.residual, "df", "\n",
+    "Dispersion parameter = ", summary(pois.m1)$dispersion)
+```
+
+```{r}
+# Exponentiated coefficients
+exp(coef(pois.m1))
+# Goodness-of-fit test
+gof.pvalue = 1 - pchisq(pois.m1$deviance, pois.m1$df.residual)
+gof.pvalue
+```
+
+### Fitting a ZIP Model
+
+```{r, comment = NA}
+zip.m2 <- zeroinfl(drinks ~ off.campus + sex | firstYear, 
+                   data = zip.data)
+```
+
+```{r, message=FALSE}
+coef(summary(zip.m2))
+cat(" Log likelihood = ", summary(zip.m2)$loglik)
+```
+
+```{r}
+exp(coef(zip.m2))   # exponentiated coefficients
+```
+
+### The Vuong Test (optional)
+
+```{r, comment=NA}
+vuong(pois.m1, zip.m2)
+```
+
+### Residual Plot
+
+```{r, poisRes, fig.align="center",out.width="60%", fig.cap='Residuals by fitted counts for ZIP model.', warning=FALSE, message=FALSE}
+#yhatXresidZero
+res.df <- data.frame(resid = residuals(zip.m2), fit = fitted(zip.m2))
+ggplot(res.df, aes(x = fit, y = resid)) +
+  geom_point() +
+  ylab("Residuals from ZIP model") +
+  xlab("Fitted values from ZIP model") +
+  annotate("text", x=4.2, y=5.3, label= "Y=22") +
+  theme_minimal()
+```
+
