@@ -60,6 +60,7 @@ ggplot(data = ageGrps, aes(x = total)) +
   theme_minimal()
 ```
 
+\newpage
 
 ```{r}
 # Mean = Variance ?
@@ -71,7 +72,7 @@ knitr::kable(
       col.names = c("Age Groups", "Mean", "Variance", "n"))
 ```
 
-
+\newpage
 ```{r, ageXnhouse,fig.align="center",out.width="60%",fig.cap= 'The log of the mean household sizes, besides the head of household, by age of the head of household, with loess smoother.', message=FALSE, warning=FALSE}
 ## Checking linearity assumption: Empirical log of the means plot
 sumStats <- fHH1 %>% group_by(age) %>% 
