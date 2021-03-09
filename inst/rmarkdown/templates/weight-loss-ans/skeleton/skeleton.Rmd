@@ -1,0 +1,256 @@
+---
+title: 'Logistic regression case study: Trying to Lose Weight (full code answers)'
+subtitle: 'STA303 Winter 2021'
+output:  pdf_document
+---
+
+
+This case study is from [Chapter 6.7](https://bookdown.org/roback/bookdown-BeyondMLR/ch-logreg.html#case-study-trying-to-lose-weight) of Roback, P. & Legler, J. Beyond Multiple Linear Regression. (2021). https://bookdown.org/roback/bookdown-BeyondMLR/.
+
+For the background of this study, and information about the data organisation, please see the reading.
+
+## Exploratory Data Analysis
+
+```{r, getdata, message=FALSE}
+library(tidyverse)
+
+# get the data from the textbook
+risk2009 <- read_csv(
+  "https://raw.githubusercontent.com/proback/BeyondMLR/master/data/risk2009.csv")
+
+# create binary sex variable that takes 1 if respondent is 'female'
+risk2009 <- risk2009 %>%
+  mutate(female = ifelse(sex=="Female", 1, 0))
+```
+
+#### Task 1: Glimpse the data.
+
+```{r}
+glimpse(risk2009)
+```
+
+#### Task 2: Calculate some basic summaries.
+
+```{r}
+# What proportion of the sample are trying to lose weight?
+prop.table(table(risk2009$lose.wt))
+
+# What proportion are female?
+prop.table(table(risk2009$sex))
+
+# What proportion play on one or more sports teams?
+prop.table(table(risk2009$sport))
+
+# What proportion report each level of TV watching?
+prop.table(table(risk2009$media))
+
+# What are the mean and median BMIs for this sample?
+risk2009 %>%
+  summarise(meanBMI = mean(bmipct),
+            medianBMI = median(bmipct))
+
+# Are the proportions of respondents seeiking to lose weight similar across sex?
+prop.table(table(risk2009$sex, risk2009$lose.wt), 1)
+chisq.test(risk2009$lose.wt, risk2009$sex)
+
+# sport?
+prop.table(table(risk2009$sport, risk2009$lose.wt), 1)
+chisq.test(risk2009$lose.wt, risk2009$sport)
+
+# media?
+prop.table(table(risk2009$media, risk2009$lose.wt), 1)
+chisq.test(risk2009$lose.wt, risk2009$media)
+
+```
+
+#### Task 3: Create a stacked bar chart that displays the proportion of respondents with each waitlost group, for each sex
+
+```{r, fig.cap='Weight loss plans vs. sex.', out.width="90%"}
+ggplot(data = risk2009, aes(x = sex, fill = lose.wt)) +
+  geom_bar(position = "fill") +
+  scale_fill_grey() +
+  theme_minimal() +
+  labs(fill = "Plan", x = "Sex", y = "Proportion")
+```
+
+#### Task 4: Create a summary table with mean, sd and count of BMI for each combination of sex and weightloss group. 
+
+```{r}
+risk2009 %>%
+  group_by(sex, lose.wt) %>%
+  summarise(mean = mean(bmipct), sd = sd(bmipct), 
+            n = n(), .groups = "drop")
+```
+
+```{r}
+# This code creates a nicely formatted table
+# with the information from the above table. 
+# We could also have done this more programmatially, 
+
+sex <- c("Female"," ","Male"," ")
+wls <- c("No weight loss","Lose weight","No weight loss","Lose weight")
+mbmip <- c("43.2","72.4","58.8","85.7")
+sds <- c("25.8", "23.0", "28.2", "18.0")
+ncol <- c(89, 125, 157, 74)
+#ccbmiXsex.tab
+table3chp6 <- data.frame(sex,wls,mbmip,sds,ncol)
+colnames(table3chp6) <- c("Sex","Weight loss status","mean BMI percentile","SD","n")
+knitr::kable(table3chp6, caption="Mean BMI percentile by sex and desire to lose weight.")
+```
+
+### Empirical logit plot
+
+_The text in this section is directly from the reading [Chapter 6](https://bookdown.org/roback/bookdown-BeyondMLR/ch-logreg.html) (§ 6.7) of Roback, P. & Legler, J. Beyond Multiple Linear Regression. (2021). https://bookdown.org/roback/bookdown-BeyondMLR/._
+
+If we consider including a BMI term in our model(s), the logit should be linearly related to BMI. We can investigate this assumption by constructing an empirical logit plot. In order to calculate empirical logits, we first divide our data by sex. Within each sex, we generate 10 groups of equal sizes, the first holding the bottom 10\% in BMI percentile for that sex, the second holding the next lowest 10\%, etc. Within each group, we calculate the proportion, $\hat{p}$ that reported wanting to lose weight, and then the empirical log odds, $log(\frac{\hat{p}}{1-\hat{p}})$, that a young person in that group wants to lose weight.
+
+```{r, logitBMIsex, fig.align="center",out.width="60%", fig.cap='Empirical logits of trying to lose weight by BMI and sex.'}
+# create 10 groups of BMI levels
+risk2009 <- risk2009 %>%
+  group_by(sex) %>%
+  mutate(BMIcuts = cut_number(bmipct,10))
+  
+emplogit1 <- risk2009 %>%
+  group_by(sex, BMIcuts) %>%
+  summarise(prop.lose = mean(lose.wt.01), 
+            n = n(),
+            midpoint = median(bmipct), .groups = "drop") %>%
+  mutate(prop.lose = ifelse(prop.lose==0, .01, prop.lose),
+         emplogit = log(prop.lose / (1 - prop.lose)))
+ggplot(emplogit1, aes(x = midpoint, y = emplogit, color = sex)) +
+  geom_point(aes(shape = sex)) +
+  geom_smooth(aes(linetype = sex), 
+              method = "lm", formula = "y~x") +
+  xlab("BMI percentile") + 
+  ylab("Empirical logits") +
+  theme_minimal() +
+  scale_color_brewer(palette = "Dark2")
+```
+
+Figure \@ref(fig:logitBMIsex) presents the empirical logits for the BMI intervals by sex. Both males and females exhibit an increasing linear trend on the logit scale indicating that increasing BMI is associated with a greater desire to lose weight and that modeling log odds as a linear function of BMI is reasonable. The slope for the females appears to be similar to the slope for males, so we do not need to consider an interaction term between BMI and sex in the model. 
+
+#### Task 5: Create a stacked bar chart showing both weight loss plans by sports participation and sex.
+ 
+```{r, mosaicsexsports, fig.align="center", out.width="60%", fig.cap='Weight loss plans vs. sex and sports participation.'}
+
+ggplot(data = risk2009, aes(x = sport, fill = lose.wt)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~sex) +
+  ylab("Proportion") + 
+  scale_fill_grey() +
+  theme_minimal() +
+  labs(fill = "Plan", x = "Sex", y = "Proportion")
+```
+
+Out of those who play sports, 44\% want to lose weight, whereas 46\% want to lose weight among those who do not play sports. Figure \@ref(fig:mosaicsexsports) compares the proportion of respondents who want to lose weight by their sex and sport participation. The data suggest that sports participation is associated with the same or even a slightly lower desire to lose weight, contrary to what had originally been hypothesized. While the overall levels of those wanting to lose weight differ considerably between the sexes, the differences between those in and out of sports within sex appear to be very small.  A term for sports participation or number of teams will be considered, but there is not compelling evidence that an interaction term will be needed.
+
+It was posited that increased exposure to media, here measured as hours of TV daily, is associated with increased desire to lose weight, particularly for females. Overall, the percentage who want to lose weight ranges from 38\% of those watching 5 hours of TV per day to 55\% among those watching 2 hours daily. There is minimal variation in the proportion wanting to lose weight with both sexes combined. However, we are more interested in differences between the sexes (see Figure \@ref(fig:mediaXsex)).  We create empirical logits using the proportion of students trying to lose weight for each level of hours spent watching TV daily and look at the trends in the logits separately for males and females. From Figure \@ref(fig:logitmediasex), there does not appear to be a linear relationship for males or females. 
+
+```{r,mediaXsex, fig.align="center",out.width="60%", fig.cap='Weight loss plans vs. daily hours of TV and sex.',}
+ggplot(data = risk2009, aes(x = as.factor(media), 
+                            fill = lose.wt)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~sex) +
+  ylab("Proportion") + scale_fill_grey()
+```
+
+```{r, logitmediasex, fig.align="center",out.width="60%", fig.cap='Empirical logits for the odds of trying to lose weight by TV watching and sex.',echo=FALSE, warning=FALSE, message=FALSE}
+emplogit2 <- risk2009 %>%
+  group_by(sex, media) %>%
+  summarise(prop.lose = mean(lose.wt.01), n = n()) %>%
+  mutate(prop.lose = ifelse(prop.lose==0, .01, prop.lose)) %>%
+  mutate(emplogit = log(prop.lose / (1 - prop.lose)))
+ggplot(emplogit2, aes(x = media, y = emplogit, color = sex)) +
+  geom_point(aes(shape = sex)) +
+  geom_smooth(aes(linetype = sex), method = "lm") +
+  xlab("TV hours per day") + ylab("Empirical logits")
+```
+
+## Modelling
+
+### Task 6: Fit an appropriate model for weight loss plan with `female` as the only predictor
+
+```{r}
+model1 <- glm(lose.wt.01 ~ female, family = binomial, 
+              data = risk2009)
+
+coef(summary(model1))
+cat(" Residual deviance = ", 
+    summary(model1)$deviance, " on ",
+    summary(model1)$df.residual, "df")
+```
+
+Our estimated binomial regression model is:
+
+\[\log\left(\frac{\hat{p}}{1-\hat{p}}\right)=-0.75+1.09\cdot \textrm{female}\]
+
+### Task 7: Interpret the odds difference between female and male students
+
+```{r}
+exp(coef(model1))
+exp(confint(model1))
+```
+
+### Task 8: Fit an appropriate model with `female`, BMI and the interaction of these varaibles as predictors
+
+```{r, 6model2int}
+model2int <- glm(lose.wt.01 ~ female + bmipct + female:bmipct, 
+                 family = binomial, data = risk2009)
+summary(model2int)
+```
+
+### Task 9: Fit an appropriate model with `female`, BMI and NO interaction of these varaibles as predictors.
+
+```{r, message = NA}
+model2 <- glm(lose.wt.01 ~ female + bmipct, 
+              family = binomial, data = risk2009)
+
+exp(confint(model2))
+
+coef(summary(model2))
+cat(" Residual deviance = ", 
+    summary(model2)$deviance, " on ",
+    summary(model2)$df.residual, "df")
+```
+
+Our estimated binomial regression model is:
+
+\[\log\left(\frac{\hat{p}}{1-\hat{p}}\right)= -4.26+1.86\cdot\textrm{female}+0.047\cdot\textrm{bmipct}\]
+
+### Task 10: For a 10 unit increase in BMI percentile, how do the odds of wanting lose weight change?
+
+```{r}
+exp(10*0.047)
+```
+
+
+### Task 11: Add sport to our model.
+
+Note from the the reading: Sports participation was considered for inclusion in the model in three ways: an indicator of sports participation (0 = no teams, 1 = one or more teams), treating the number of teams (0, 1, 2, or 3) as numeric, and treating the number of teams as a factor.  The models below treat sports participation using an indicator variable, but all three models produced similar results.
+
+```{r}
+model3 <- glm(lose.wt.01 ~ female + bmipct + sport, 
+              family = binomial, data = risk2009)
+
+coef(summary(model3))
+cat(" Residual deviance = ", 
+    summary(model3)$deviance, " on ",
+    summary(model3)$df.residual, "df")
+```
+
+(The reading also discusses the `media` variable and further interactions with `sport`, these has been omitted here.)
+
+## Model comparisons
+
+### Task 12: Compare models 1 through 3 with a likelihood ratio test (also a 'drop-in-deviance' test).
+
+```{r}
+anova(model1, model2, model3, test="Chisq")
+
+lmtest::lrtest(model1, model2, model3)
+```
+
+Comparing models using differences in deviances requires that the models be __nested__, meaning each smaller model is a simplified version of the larger model. In our case, Models 1, 2, and 3 are nest. You'll see additional models fit in the reading, where Models 3 and 4 cannot be compared using a deviance test. There is an example of applying AIC.
+
+## Final comments
+Pay special attention to the Discussion section of this reading. It is a good example of discussing limitations for an analysis, which you will have to do for future weekly writing (TBC) and in your final project.
