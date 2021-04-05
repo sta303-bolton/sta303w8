@@ -6,7 +6,8 @@ Author: Liza Bolton
 Maintainer: Liza Bolton <liza.bolton@utoronto.ca>
 Description: Contains code/templates for Week 8 case studies.
 License: GPL-3
-Depends: tidyverse,
+Depends: dplyr,
+  lubridate,
   gridExtra,
   knitr,
   mosaic,
